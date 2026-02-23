@@ -225,11 +225,25 @@ function formatPlace(place, index) {
   return line
 }
 
+// ===== بناء هاشتاق تصنيف + مدينة بشكل صحيح =====
+// مثال: '#غسيل_سيارات' + 'الخبر' → '#غسيل_سيارات_الخبر'
+// مثال: '#سيارات'       + 'الخبر' → '#سيارات_الخبر'
+function buildCityHashtag(hashtag, cityName) {
+  // نزيل # من البداية، نضيف _المدينة ثم نعيد #
+  const base = hashtag.replace(/^#/, '')
+  return `#${base}_${cityName}`
+}
+
 // ===== بناء الرسالة الكاملة =====
 function buildMessage(city, category, places) {
-  const cityHashtag = `#${city.nameSlug}`
-  const catHashtags = category.hashtags.map(h => `${h}_${city.nameSlug}`).join(' ')
-  const generalHashtags = category.hashtags.join(' ')
+
+  // هاشتاقات مدمجة: تصنيف_مدينة (سطر البحث الدقيق)
+  const specificTags = category.hashtags
+    .map(h => buildCityHashtag(h, city.nameSlug))
+    .join('  ')
+
+  // هاشتاقات عامة للتصنيف فقط
+  const generalTags = category.hashtags.join('  ')
 
   let msg = ''
 
@@ -246,10 +260,10 @@ function buildMessage(city, category, places) {
   // الفاصل
   msg += `\n━━━━━━━━━━━━━━━━━━━━━━\n`
 
-  // الهاشتاقات - السطر الأول: تصنيف + مدينة (للبحث الدقيق)
-  msg += `${catHashtags}\n`
-  // الهاشتاق الثاني: عام للتصنيف + المدينة
-  msg += `${generalHashtags} ${cityHashtag} #المنطقة_الشرقية\n\n`
+  // السطر الأول: هاشتاق دقيق (تصنيف + مدينة) للبحث السريع
+  msg += `${specificTags}\n`
+  // السطر الثاني: هاشتاقات عامة + المدينة + المنطقة
+  msg += `${generalTags}  #${city.nameSlug}  #المنطقة_الشرقية\n\n`
 
   // التوقيع
   msg += `📢 *خدمات المنطقة الشرقية* 🌟`
