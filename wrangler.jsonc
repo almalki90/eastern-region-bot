@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eastern-region-bot",
+  "compatibility_date": "2026-02-23",
+  "pages_build_output_dir": "./dist",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": {
+    "crons": ["0 6 * * *"]
+  }
+}
