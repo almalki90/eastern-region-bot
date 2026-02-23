@@ -1,0 +1,46 @@
+name: 📢 خدمات المنطقة الشرقية - إرسال يومي
+
+on:
+  # ===== جدول الإرسال التلقائي =====
+  # التوقيت UTC | السعودية (UTC+3)
+  schedule:
+    - cron: '0 6 * * *'   # 9:00 صباحاً
+    - cron: '0 10 * * *'  # 1:00 ظهراً
+    - cron: '0 15 * * *'  # 6:00 مساءً
+
+  # ===== تشغيل يدوي للاختبار =====
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'سبب التشغيل اليدوي'
+        required: false
+        default: 'اختبار يدوي'
+
+jobs:
+  send-bot:
+    name: إرسال رسالة البوت
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 📥 تحميل الكود
+        uses: actions/checkout@v4
+
+      - name: 🟢 إعداد Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🤖 تشغيل البوت
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node bot.mjs
+
+      - name: ✅ تأكيد النجاح
+        if: success()
+        run: echo "✅ تم إرسال رسالة البوت بنجاح!"
+
+      - name: ❌ تأكيد الفشل
+        if: failure()
+        run: echo "❌ فشل إرسال رسالة البوت!"
