@@ -83,60 +83,111 @@ async function fetchPlace() {
   return { ...place, cityName: city.name, categoryLabel: type.label }
 }
 
+// ===== عنوان القسم حسب نوع المكان =====
+function getSectionTitle(categoryLabel, cityName) {
+  // استخراج نوع المكان من الـ label
+  if (categoryLabel.includes('مطعم'))          return `🍽️ مطاعم ${cityName}`
+  if (categoryLabel.includes('كافيه'))         return `☕ كافيهات ${cityName}`
+  if (categoryLabel.includes('وجبات سريعة'))   return `🍔 وجبات سريعة في ${cityName}`
+  if (categoryLabel.includes('مخبز'))          return `🥐 مخابز ${cityName}`
+  if (categoryLabel.includes('سوبرماركت'))     return `🛒 أسواق ${cityName}`
+  if (categoryLabel.includes('بقالة'))         return `🏪 بقاليات ${cityName}`
+  if (categoryLabel.includes('صيدلية'))        return `💊 صيدليات ${cityName}`
+  if (categoryLabel.includes('صالة رياضية'))   return `🏋️ صالات رياضية في ${cityName}`
+  if (categoryLabel.includes('صالون تجميل'))   return `💇 صالونات تجميل في ${cityName}`
+  if (categoryLabel.includes('غسيل سيارات'))   return `🚗 غسيل سيارات في ${cityName}`
+  if (categoryLabel.includes('مغسلة'))         return `👕 مغاسل ${cityName}`
+  if (categoryLabel.includes('حلاق'))          return `✂️ محلات حلاقة في ${cityName}`
+  if (categoryLabel.includes('ملابس'))         return `👗 محلات ملابس في ${cityName}`
+  if (categoryLabel.includes('إلكترونيات'))    return `📱 محلات إلكترونيات في ${cityName}`
+  if (categoryLabel.includes('أدوات'))         return `🔧 محلات أدوات في ${cityName}`
+  return `📍 خدمات ${cityName}`
+}
+
+// ===== جملة تعريفية حسب نوع المكان =====
+function getIntroLine(categoryLabel, name) {
+  if (categoryLabel.includes('مطعم'))          return `مطعمنا اليوم هو *${name}*`
+  if (categoryLabel.includes('كافيه'))         return `كافيهنا اليوم هو *${name}*`
+  if (categoryLabel.includes('وجبات سريعة'))   return `وجبتنا السريعة اليوم من *${name}*`
+  if (categoryLabel.includes('مخبز'))          return `مخبزنا اليوم هو *${name}*`
+  if (categoryLabel.includes('سوبرماركت'))     return `سوبرماركتنا اليوم هو *${name}*`
+  if (categoryLabel.includes('بقالة'))         return `بقاليتنا اليوم هي *${name}*`
+  if (categoryLabel.includes('صيدلية'))        return `صيدليتنا اليوم هي *${name}*`
+  if (categoryLabel.includes('صالة رياضية'))   return `صالتنا الرياضية اليوم هي *${name}*`
+  if (categoryLabel.includes('صالون تجميل'))   return `صالون التجميل اليوم هو *${name}*`
+  if (categoryLabel.includes('غسيل سيارات'))   return `محل غسيل السيارات اليوم هو *${name}*`
+  if (categoryLabel.includes('مغسلة'))         return `مغسلتنا اليوم هي *${name}*`
+  if (categoryLabel.includes('حلاق'))          return `صالون الحلاقة اليوم هو *${name}*`
+  if (categoryLabel.includes('ملابس'))         return `محل الملابس اليوم هو *${name}*`
+  if (categoryLabel.includes('إلكترونيات'))    return `محل الإلكترونيات اليوم هو *${name}*`
+  if (categoryLabel.includes('أدوات'))         return `محل الأدوات اليوم هو *${name}*`
+  return `مكاننا اليوم هو *${name}*`
+}
+
+// ===== وصف الخدمة حسب نوع المكان =====
+function getServiceLine(categoryLabel) {
+  if (categoryLabel.includes('مطعم'))          return `يقدّم وجبات شعبية وعربية متنوعة`
+  if (categoryLabel.includes('كافيه'))         return `يقدّم القهوة والمشروبات والحلويات`
+  if (categoryLabel.includes('وجبات سريعة'))   return `يقدّم وجبات سريعة ومتنوعة`
+  if (categoryLabel.includes('مخبز'))          return `يقدّم المخبوزات الطازجة والمعجنات`
+  if (categoryLabel.includes('سوبرماركت'))     return `يوفّر جميع احتياجاتك اليومية`
+  if (categoryLabel.includes('بقالة'))         return `يوفّر المواد الغذائية والاحتياجات الأساسية`
+  if (categoryLabel.includes('صيدلية'))        return `يوفّر الأدوية ومنتجات الصحة والعناية`
+  if (categoryLabel.includes('صالة رياضية'))   return `يقدّم خدمات اللياقة البدنية والتمارين`
+  if (categoryLabel.includes('صالون تجميل'))   return `يقدّم خدمات التجميل والعناية بالبشرة`
+  if (categoryLabel.includes('غسيل سيارات'))   return `يقدّم خدمات غسيل وتنظيف السيارات`
+  if (categoryLabel.includes('مغسلة'))         return `يقدّم خدمات غسيل وكوي الملابس`
+  if (categoryLabel.includes('حلاق'))          return `يقدّم خدمات الحلاقة والعناية بالشعر`
+  if (categoryLabel.includes('ملابس'))         return `يوفّر أحدث تشكيلات الملابس والأزياء`
+  if (categoryLabel.includes('إلكترونيات'))    return `يوفّر الأجهزة الإلكترونية والاكسسوارات`
+  if (categoryLabel.includes('أدوات'))         return `يوفّر أدوات البناء والصيانة والمعدات`
+  return `يقدّم خدمات متنوعة`
+}
+
 // ===== بناء الرسالة =====
 function buildMessage(place) {
-  const tags = place.tags || {}
-  const name   = tags['name:ar'] || tags.name || 'بدون اسم'
-  const nameEn = tags['name:en'] || ''
+  const tags    = place.tags || {}
+  const name    = tags['name:ar'] || tags.name || 'بدون اسم'
 
-  const now = new Date()
-  const dateStr = now.toLocaleDateString('ar-SA', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    timeZone: 'Asia/Riyadh',
-  })
-  const timeStr = now.toLocaleTimeString('ar-SA', {
-    hour: '2-digit', minute: '2-digit',
-    timeZone: 'Asia/Riyadh', hour12: true,
-  })
+  // عنوان القسم والجملة التعريفية
+  const sectionTitle = getSectionTitle(place.categoryLabel, place.cityName)
+  const introLine    = getIntroLine(place.categoryLabel, name)
+  const serviceLine  = getServiceLine(place.categoryLabel)
 
   let msg = ''
-  msg += `🗓️ *${dateStr}*  |  ${timeStr}\n`
+  msg += `*${sectionTitle}*\n`
   msg += `━━━━━━━━━━━━━━━━━━\n\n`
-  msg += `${place.categoryLabel}\n\n`
-  msg += `🏷️ *${name}*\n`
-  if (nameEn) msg += `   _${nameEn}_\n`
-  msg += `\n`
-  msg += `🏙️ *المدينة:* ${place.cityName}\n\n`
+  msg += `${introLine}\n\n`
 
+  // الموقع: حي أو شارع
   const street   = tags['addr:street'] || tags['addr:full'] || ''
   const district = tags['addr:suburb'] || tags['addr:quarter'] || ''
-  if (street || district) {
-    msg += `📍 *العنوان:*\n`
-    if (district) msg += `   ${district}، `
-    if (street)   msg += street
-    msg += `\n\n`
+  if (district || street) {
+    msg += `📍 يقع في `
+    if (district && street) msg += `حي ${district}، شارع ${street}\n`
+    else if (district)      msg += `حي ${district}\n`
+    else                    msg += `شارع ${street}\n`
+  } else {
+    msg += `📍 يقع في ${place.cityName}\n`
   }
 
-  const phone = tags.phone || tags['contact:phone'] || ''
-  if (phone) msg += `📞 *الهاتف:* ${phone}\n\n`
+  // الخدمة
+  msg += `\n🍴 ${serviceLine}\n`
 
-  const website = tags.website || tags['contact:website'] || ''
-  if (website) msg += `🌐 *الموقع:* ${website}\n\n`
-
+  // أوقات العمل
   const hours = tags.opening_hours || ''
-  if (hours) msg += `🕐 *أوقات العمل:* ${hours}\n\n`
-
-  const lat = place.lat || (place.center && place.center.lat)
-  const lon = place.lon || (place.center && place.center.lon)
-  if (lat && lon) {
-    const gmap = `https://www.google.com/maps?q=${lat},${lon}`
-    const osm  = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=17`
-    msg += `🗺️ [خريطة جوجل](${gmap})  |  [OpenStreetMap](${osm})\n\n`
+  if (hours) {
+    msg += `\n🕐 يفتح: ${hours}\n`
   }
 
-  msg += `━━━━━━━━━━━━━━━━━━\n`
-  msg += `📢 *خدمات المنطقة الشرقية*\n`
-  msg += `_نكتشف معاً أفضل الأماكن في المنطقة_ 🌟`
+  // رقم التواصل
+  const phone = tags.phone || tags['contact:phone'] || tags['contact:mobile'] || ''
+  if (phone) {
+    msg += `\n📞 رقم التواصل: ${phone}\n`
+  }
+
+  msg += `\n━━━━━━━━━━━━━━━━━━\n`
+  msg += `📢 *خدمات المنطقة الشرقية* 🌟`
 
   return msg
 }
