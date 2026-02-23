@@ -173,6 +173,28 @@ async function fetchPlaces(city, category, count = 5) {
   return shuffled.slice(0, count).map(p => ({ ...p, cityName: city.name, category }))
 }
 
+// ===== استخراج الإحداثيات من العنصر =====
+function getCoords(place) {
+  // node → lat/lon مباشرة
+  if (place.lat && place.lon) return { lat: place.lat, lon: place.lon }
+  // way → center
+  if (place.center) return { lat: place.center.lat, lon: place.center.lon }
+  return null
+}
+
+// ===== بناء رابط Google Maps مجاني بدون API =====
+function buildGoogleMapsLink(place, name) {
+  const coords = getCoords(place)
+  if (coords) {
+    // رابط بالإحداثيات الدقيقة
+    const url = `https://www.google.com/maps?q=${coords.lat},${coords.lon}`
+    return `[📍 موقع على الخريطة](${url})`
+  }
+  // بديل: بحث بالاسم والمدينة
+  const query = encodeURIComponent(`${name} ${place.cityName}`)
+  return `[📍 ابحث على الخريطة](https://www.google.com/maps/search/${query})`
+}
+
 // ===== تنسيق بيانات مكان واحد =====
 function formatPlace(place, index) {
   const tags     = place.tags || {}
@@ -181,19 +203,24 @@ function formatPlace(place, index) {
   const district = tags['addr:suburb']  || tags['addr:quarter'] || ''
   const phone    = tags.phone           || tags['contact:phone']|| tags['contact:mobile'] || ''
   const hours    = tags.opening_hours   || ''
+  const mapLink  = buildGoogleMapsLink(place, name)
 
   let line = `${index}️⃣ *${name}*\n`
 
+  // العنوان
   if (district && street) {
-    line += `   📍 حي ${district}، شارع ${street}\n`
+    line += `   🏘️ حي ${district}، شارع ${street}\n`
   } else if (district) {
-    line += `   📍 حي ${district}\n`
+    line += `   🏘️ حي ${district}\n`
   } else if (street) {
-    line += `   📍 شارع ${street}\n`
+    line += `   🛣️ شارع ${street}\n`
   }
 
   if (hours)  line += `   🕐 ${hours}\n`
   if (phone)  line += `   📞 ${phone}\n`
+
+  // رابط جوجل ماب دائماً
+  line += `   ${mapLink}\n`
 
   return line
 }
@@ -230,8 +257,20 @@ function buildMessage(city, category, places) {
   return msg
 }
 
+// ===== تنظيف النص من الرموز التي تكسر Markdown =====
+function cleanText(text) {
+  // نزيل الرموز الخاصة التي تسبب مشاكل في Markdown
+  // نحتفظ بـ * و _ و [ و ] و ( و ) للتنسيق
+  return text
+    .replace(/'/g, "'")        // curly apostrophe → straight (آمن)
+    .replace(/`/g, "'")        // backtick → apostrophe
+}
+
 // ===== إرسال لتليجرام =====
 async function sendTelegram(text) {
+  const cleanedText = cleanText(text)
+  
+  // محاولة أولى: Markdown
   const res = await fetch(
     `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
     {
@@ -239,13 +278,36 @@ async function sendTelegram(text) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id:    TELEGRAM_CHAT_ID,
-        text,
+        text:       cleanedText,
         parse_mode: 'Markdown',
         disable_web_page_preview: true,
       }),
     }
   )
   const data = await res.json()
+  
+  // إذا فشل Markdown نرسل بدون تنسيق
+  if (!data.ok) {
+    console.log('⚠️ Markdown فشل، إرسال بدون تنسيق...')
+    const plainText = cleanedText
+      .replace(/\*/g, '')
+      .replace(/_/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // تحويل الروابط لنص عادي
+    const res2 = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text:    plainText,
+          disable_web_page_preview: true,
+        }),
+      }
+    )
+    return await res2.json()
+  }
+  
   return data
 }
 
