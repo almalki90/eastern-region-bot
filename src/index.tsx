@@ -3,126 +3,188 @@ import { Hono } from 'hono'
 type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   TELEGRAM_CHAT_ID: string
-  GOOGLE_PLACES_API_KEY: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// ---- إعدادات المنطقة الشرقية ----
-const EASTERN_REGION_LOCATION = '26.4207,50.0888'
-const SEARCH_RADIUS = 10000
-
-const PLACE_TYPES = [
-  { type: 'cafe', label: '☕ كافيه' },
-  { type: 'restaurant', label: '🍽️ مطعم' },
-  { type: 'store', label: '🏪 محل تجاري' },
-  { type: 'bakery', label: '🥐 مخبز' },
-  { type: 'gym', label: '🏋️ صالة رياضية' },
-  { type: 'beauty_salon', label: '💇 صالون تجميل' },
-  { type: 'supermarket', label: '🛒 سوبرماركت' },
-  { type: 'pharmacy', label: '💊 صيدلية' },
-  { type: 'laundry', label: '👕 مغسلة' },
-  { type: 'car_wash', label: '🚗 غسيل سيارات' },
+// ===== إعدادات المدن =====
+const CITIES = [
+  { name: 'الدمام',   lat: 26.4207, lon: 50.0888, radius: 8000 },
+  { name: 'الخبر',    lat: 26.2172, lon: 50.1971, radius: 6000 },
+  { name: 'الظهران',  lat: 26.2851, lon: 50.1521, radius: 5000 },
+  { name: 'الجبيل',   lat: 27.0046, lon: 49.6580, radius: 7000 },
+  { name: 'الاحساء',  lat: 25.3792, lon: 49.5868, radius: 10000 },
 ]
 
-// ---- جلب مكان عشوائي من Google Places ----
-async function fetchRandomPlace(apiKey: string): Promise<any | null> {
-  const randomType = PLACE_TYPES[Math.floor(Math.random() * PLACE_TYPES.length)]
+// ===== أنواع الأماكن =====
+const PLACE_TYPES = [
+  { osm: 'cafe',            label: '☕ كافيه',           ar: 'كافيه'         },
+  { osm: 'restaurant',      label: '🍽️ مطعم',            ar: 'مطعم'          },
+  { osm: 'fast_food',       label: '🍔 وجبات سريعة',     ar: 'مطعم وجبات'   },
+  { osm: 'bakery',          label: '🥐 مخبز',            ar: 'مخبز'          },
+  { osm: 'supermarket',     label: '🛒 سوبرماركت',       ar: 'سوبرماركت'    },
+  { osm: 'convenience',     label: '🏪 بقالة',           ar: 'بقالة'         },
+  { osm: 'pharmacy',        label: '💊 صيدلية',          ar: 'صيدلية'        },
+  { osm: 'gym',             label: '🏋️ صالة رياضية',     ar: 'صالة رياضية'  },
+  { osm: 'beauty_salon',    label: '💇 صالون تجميل',     ar: 'صالون'         },
+  { osm: 'car_wash',        label: '🚗 غسيل سيارات',     ar: 'غسيل سيارات'  },
+  { osm: 'laundry',         label: '👕 مغسلة',           ar: 'مغسلة'         },
+  { osm: 'hairdresser',     label: '✂️ حلاق',            ar: 'حلاق'          },
+  { osm: 'clothes',         label: '👗 ملابس',           ar: 'محل ملابس'    },
+  { osm: 'electronics',     label: '📱 إلكترونيات',      ar: 'محل إلكترونيات'},
+  { osm: 'hardware',        label: '🔧 أدوات',           ar: 'محل أدوات'    },
+]
 
-  const url =
-    `https://maps.googleapis.com/maps/api/place/nearbysearch/json` +
-    `?location=${EASTERN_REGION_LOCATION}` +
-    `&radius=${SEARCH_RADIUS}` +
-    `&type=${randomType.type}` +
-    `&language=ar` +
-    `&key=${apiKey}`
+// ===== جلب الأماكن من Overpass API =====
+async function fetchPlaceFromOverpass(): Promise<any | null> {
+  // اختر مدينة عشوائية
+  const city = CITIES[Math.floor(Math.random() * CITIES.length)]
+  // اختر نوع عشوائي
+  const type = PLACE_TYPES[Math.floor(Math.random() * PLACE_TYPES.length)]
 
-  const res = await fetch(url)
-  const data: any = await res.json()
+  // بناء استعلام Overpass
+  const isShop = ['supermarket','convenience','bakery','clothes','electronics','hardware','laundry'].includes(type.osm)
+  const isLeisure = ['gym'].includes(type.osm)
 
-  if (!data.results || data.results.length === 0) return null
+  let query = ''
+  if (isShop) {
+    query = `
+      [out:json][timeout:25];
+      (
+        node["shop"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+        way["shop"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+      );
+      out center 50;
+    `
+  } else if (isLeisure) {
+    query = `
+      [out:json][timeout:25];
+      (
+        node["leisure"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+        way["leisure"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+      );
+      out center 50;
+    `
+  } else {
+    query = `
+      [out:json][timeout:25];
+      (
+        node["amenity"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+        way["amenity"="${type.osm}"](around:${city.radius},${city.lat},${city.lon});
+      );
+      out center 50;
+    `
+  }
 
-  const places = data.results.filter((p: any) => p.rating && p.rating >= 3.5)
-  if (places.length === 0) return null
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+    })
 
-  const place = places[Math.floor(Math.random() * Math.min(places.length, 15))]
-  return { ...place, categoryLabel: randomType.label }
+    const data: any = await res.json()
+    if (!data.elements || data.elements.length === 0) return null
+
+    // فلتر الأماكن اللي عندها اسم
+    const named = data.elements.filter((e: any) => e.tags && e.tags.name)
+    if (named.length === 0) return null
+
+    const place = named[Math.floor(Math.random() * Math.min(named.length, 20))]
+
+    return {
+      ...place,
+      cityName: city.name,
+      categoryLabel: type.label,
+      categoryAr: type.ar,
+    }
+  } catch (e) {
+    return null
+  }
 }
 
-// ---- جلب تفاصيل إضافية للمكان ----
-async function fetchPlaceDetails(placeId: string, apiKey: string): Promise<any | null> {
-  const url =
-    `https://maps.googleapis.com/maps/api/place/details/json` +
-    `?place_id=${placeId}` +
-    `&fields=name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,opening_hours,photos,url` +
-    `&language=ar` +
-    `&key=${apiKey}`
-
-  const res = await fetch(url)
-  const data: any = await res.json()
-  return data.result || null
-}
-
-// ---- بناء رسالة تليجرام ----
-function buildMessage(place: any, details: any): string {
-  const rating = details.rating || place.rating || 0
-  const stars = '⭐'.repeat(Math.floor(rating))
-  const reviewCount = details.user_ratings_total || place.user_ratings_total || 0
+// ===== بناء رسالة تليجرام =====
+function buildMessage(place: any): string {
+  const tags = place.tags || {}
+  const name = tags.name || tags['name:ar'] || 'بدون اسم'
+  const nameEn = tags['name:en'] || ''
 
   const now = new Date()
-  const options: Intl.DateTimeFormatOptions = {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  const dateOptions: Intl.DateTimeFormatOptions = {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     timeZone: 'Asia/Riyadh',
   }
-  const dateStr = now.toLocaleDateString('ar-SA', options)
+  const timeOptions: Intl.DateTimeFormatOptions = {
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Riyadh', hour12: true,
+  }
+  const dateStr = now.toLocaleDateString('ar-SA', dateOptions)
+  const timeStr = now.toLocaleTimeString('ar-SA', timeOptions)
 
-  let message = `🗓️ *${dateStr}*\n`
-  message += `━━━━━━━━━━━━━━━━━━\n\n`
-  message += `${place.categoryLabel}\n\n`
-  message += `🏷️ *${details.name || place.name}*\n\n`
+  let msg = ''
+  msg += '🗓️ *' + dateStr + '* | ' + timeStr + '\n'
+  msg += '━━━━━━━━━━━━━━━━━━\n\n'
+  msg += place.categoryLabel + '\n\n'
+  msg += '🏷️ *' + name + '*\n'
+  if (nameEn) msg += '   _' + nameEn + '_\n'
+  msg += '\n'
 
-  if (rating > 0) {
-    message += `${stars}\n`
-    message += `⭐ التقييم: *${rating}/5* (${reviewCount.toLocaleString('ar')} تقييم)\n\n`
+  // المدينة
+  msg += '🏙️ *المدينة:* ' + place.cityName + '\n\n'
+
+  // العنوان
+  const street = tags['addr:street'] || tags['addr:full'] || ''
+  const district = tags['addr:suburb'] || tags['addr:quarter'] || ''
+  if (street || district) {
+    msg += '📍 *العنوان:*\n'
+    if (district) msg += '   ' + district + '، '
+    if (street) msg += street
+    msg += '\n\n'
   }
 
-  if (details.formatted_address || place.vicinity) {
-    message += `📍 *العنوان:*\n${details.formatted_address || place.vicinity}\n\n`
+  // الهاتف
+  const phone = tags.phone || tags['contact:phone'] || tags['phone:SA'] || ''
+  if (phone) {
+    msg += '📞 *الهاتف:* ' + phone + '\n\n'
   }
 
-  if (details.formatted_phone_number) {
-    message += `📞 *الهاتف:* ${details.formatted_phone_number}\n\n`
+  // الموقع الإلكتروني
+  const website = tags.website || tags['contact:website'] || ''
+  if (website) {
+    msg += '🌐 *الموقع:* ' + website + '\n\n'
   }
 
-  if (details.website) {
-    message += `🌐 *الموقع:* ${details.website}\n\n`
+  // أوقات العمل
+  const hours = tags.opening_hours || ''
+  if (hours) {
+    msg += '🕐 *أوقات العمل:* ' + hours + '\n\n'
   }
 
-  if (details.opening_hours && details.opening_hours.weekday_text) {
-    message += `🕐 *أوقات العمل:*\n`
-    const hours: string[] = details.opening_hours.weekday_text
-    hours.slice(0, 3).forEach((line: string) => {
-      message += `  • ${line}\n`
-    })
-    message += `\n`
+  // الوصف
+  const desc = tags.description || tags['description:ar'] || ''
+  if (desc) {
+    msg += '📝 ' + desc + '\n\n'
   }
 
-  const mapsUrl = details.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
-  message += `🗺️ [عرض على خريطة جوجل](${mapsUrl})\n\n`
+  // رابط خريطة
+  const lat = place.lat || (place.center && place.center.lat)
+  const lon = place.lon || (place.center && place.center.lon)
+  if (lat && lon) {
+    const mapsUrl = 'https://www.google.com/maps?q=' + lat + ',' + lon
+    const osmUrl = 'https://www.openstreetmap.org/?mlat=' + lat + '&mlon=' + lon + '&zoom=17'
+    msg += '🗺️ [خريطة جوجل](' + mapsUrl + ')  |  [OpenStreetMap](' + osmUrl + ')\n\n'
+  }
 
-  message += `━━━━━━━━━━━━━━━━━━\n`
-  message += `📢 *بوت أخبار المنطقة الشرقية*\n`
-  message += `_نكتشف معاً أفضل الأماكن في المنطقة_`
+  msg += '━━━━━━━━━━━━━━━━━━\n'
+  msg += '📢 *خدمات المنطقة الشرقية*\n'
+  msg += '_نكتشف معاً أفضل الأماكن في المنطقة_ 🌟'
 
-  return message
+  return msg
 }
 
-// ---- إرسال رسالة نصية عبر تليجرام ----
-async function sendTelegramMessage(token: string, chatId: string, text: string): Promise<boolean> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+// ===== إرسال رسالة تليجرام =====
+async function sendTelegram(token: string, chatId: string, text: string): Promise<boolean> {
+  const res = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -136,222 +198,222 @@ async function sendTelegramMessage(token: string, chatId: string, text: string):
   return data.ok === true
 }
 
-// ---- إرسال صورة عبر تليجرام ----
-async function sendTelegramPhoto(
-  token: string,
-  chatId: string,
-  photoUrl: string,
-  caption: string
-): Promise<boolean> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      photo: photoUrl,
-      caption,
-      parse_mode: 'Markdown',
-    }),
-  })
-  const data: any = await res.json()
-  return data.ok === true
-}
+// ===== المنطق الرئيسي =====
+async function runBot(env: Bindings): Promise<{ success: boolean; message: string }> {
+  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = env
 
-// ---- المنطق الرئيسي للبوت ----
-async function runDailyBot(env: Bindings): Promise<{ success: boolean; message: string }> {
-  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_PLACES_API_KEY } = env
-
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !GOOGLE_PLACES_API_KEY) {
-    return { success: false, message: 'متغيرات البيئة غير مكتملة' }
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return { success: false, message: 'متغيرات البيئة ناقصة' }
   }
 
-  const place = await fetchRandomPlace(GOOGLE_PLACES_API_KEY)
+  // محاولة جلب مكان (حتى 3 محاولات)
+  let place = null
+  for (let i = 0; i < 3; i++) {
+    place = await fetchPlaceFromOverpass()
+    if (place) break
+  }
+
   if (!place) {
-    return { success: false, message: 'لم يتم العثور على أماكن' }
+    return { success: false, message: 'لم يتم العثور على أماكن من Overpass' }
   }
 
-  const details = await fetchPlaceDetails(place.place_id, GOOGLE_PLACES_API_KEY)
-  if (!details) {
-    return { success: false, message: 'فشل جلب تفاصيل المكان' }
-  }
-
-  const messageText = buildMessage(place, details)
-
-  let sent = false
-
-  if (details.photos && details.photos.length > 0) {
-    const photoRef = details.photos[0].photo_reference
-    const photoUrl =
-      `https://maps.googleapis.com/maps/api/place/photo` +
-      `?maxwidth=800&photo_reference=${photoRef}&key=${GOOGLE_PLACES_API_KEY}`
-    sent = await sendTelegramPhoto(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, photoUrl, messageText)
-  }
-
-  if (!sent) {
-    sent = await sendTelegramMessage(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, messageText)
-  }
+  const text = buildMessage(place)
+  const sent = await sendTelegram(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, text)
 
   return {
     success: sent,
-    message: sent ? `تم إرسال: ${details.name || place.name}` : 'فشل الإرسال',
+    message: sent
+      ? 'تم الإرسال: ' + (place.tags?.name || 'مكان جديد') + ' في ' + place.cityName
+      : 'فشل إرسال الرسالة',
   }
 }
 
-// ---- HTTP Routes ----
+// ===== Cloudflare Scheduled (Cron) =====
+// crons: ["0 6 * * *", "0 10 * * *", "0 15 * * *"]
+// 6 UTC = 9 صباحاً KSA | 10 UTC = 1 ظهراً KSA | 15 UTC = 6 مساءً KSA
+export default {
+  fetch: app.fetch,
 
-function buildCategoryItems(): string {
-  let html = ''
+  async scheduled(_event: ScheduledEvent, env: Bindings, _ctx: ExecutionContext) {
+    console.log('🤖 بوت خدمات المنطقة الشرقية - إرسال تلقائي')
+    const result = await runBot(env)
+    console.log('النتيجة:', result.message)
+  },
+}
+
+// ===== بناء HTML مسبقاً خارج الـ route handler =====
+function buildCitiesHtml(): string {
+  let h = ''
+  for (let i = 0; i < CITIES.length; i++) {
+    h += '<span style="background:rgba(255,255,255,0.1);padding:.3rem .8rem;border-radius:999px;font-size:.9rem;">'
+      + CITIES[i].name + '</span> '
+  }
+  return h
+}
+
+function buildTypesHtml(): string {
+  let h = ''
   for (let i = 0; i < PLACE_TYPES.length; i++) {
-    html += '<div class="cat-item">' + PLACE_TYPES[i].label + '</div>\n'
+    h += '<div style="background:rgba(255,255,255,0.05);border-radius:.75rem;padding:.6rem;text-align:center;font-size:.9rem;">'
+      + PLACE_TYPES[i].label + '</div>'
   }
-  return html
+  return h
 }
 
-app.get('/', (c) => {
-  const catItems = buildCategoryItems()
-  const pageHtml = buildPageHtml(catItems)
-  return c.html(pageHtml)
-})
+// ===== HTTP Routes =====
 
-function buildPageHtml(catItems: string): string {
-  const part1 = '<!DOCTYPE html><html lang="ar" dir="rtl"><head>'
-    + '<meta charset="UTF-8">'
-    + '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-    + '<title>بوت أخبار المنطقة الشرقية</title>'
-    + '<script src="https://cdn.tailwindcss.com"><\/script>'
+// الصفحة الرئيسية
+app.get('/', (c) => {
+  const citiesHtml = buildCitiesHtml()
+  const typesHtml = buildTypesHtml()
+
+  const html = '<!DOCTYPE html><html lang="ar" dir="rtl">'
+    + '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>خدمات المنطقة الشرقية</title>'
     + '<link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">'
     + '<style>'
-    + 'body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);min-height:100vh;color:white;}'
-    + '.card{backdrop-filter:blur(10px);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:1rem;padding:1.5rem;margin-bottom:1.5rem;}'
-    + '.cat-item{background:rgba(255,255,255,0.05);border-radius:.75rem;padding:.75rem;text-align:center;font-size:1rem;}'
-    + '.grid-4{display:grid;grid-template-columns:repeat(2,1fr);gap:.75rem;}'
-    + '@media(min-width:768px){.grid-4{grid-template-columns:repeat(3,1fr);}}'
-    + '.grid-stat{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;}'
-    + '@media(min-width:768px){.grid-stat{grid-template-columns:repeat(4,1fr);}}'
-    + '.btn{font-weight:bold;padding:1rem 1.5rem;border-radius:.75rem;font-size:1rem;cursor:pointer;border:none;width:100%;transition:all .3s;margin-bottom:.75rem;}'
-    + '.btn-blue{background:#2563eb;color:white;}.btn-blue:hover{background:#1d4ed8;}'
-    + '.btn-green{background:#16a34a;color:white;}.btn-green:hover{background:#15803d;}'
-    + '.btn:disabled{opacity:.6;cursor:not-allowed;}'
-    + '.pulse{animation:pulse 2s infinite;}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}'
-    + 'pre{background:rgba(255,255,255,0.05);padding:1rem;border-radius:.5rem;overflow:auto;font-size:.8rem;}'
-    + 'code{background:rgba(255,255,255,0.1);padding:.1rem .4rem;border-radius:.25rem;}'
-    + '.text-blue{color:#93c5fd;}.text-yellow{color:#fde047;}.text-green-b{color:#4ade80;}'
-    + '</style></head><body>'
-    + '<div style="max-width:800px;margin:0 auto;padding:2rem 1rem;">'
-    + '<div style="text-align:center;margin-bottom:2.5rem;">'
-    + '<div style="font-size:4rem;margin-bottom:1rem;">🤖</div>'
-    + '<h1 style="font-size:2rem;font-weight:bold;margin-bottom:.5rem;">بوت أخبار المنطقة الشرقية</h1>'
-    + '<p class="text-blue" style="font-size:1.1rem;">يرسل يومياً أفضل الأنشطة التجارية من Google Maps</p>'
-    + '</div>'
-    + '<div class="card">'
-    + '<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;">'
-    + '<div style="width:12px;height:12px;background:#4ade80;border-radius:50%;" class="pulse"></div>'
-    + '<h2 style="font-size:1.25rem;font-weight:bold;">حالة البوت</h2></div>'
-    + '<div class="grid-stat">'
-    + '<div style="text-align:center"><div style="font-size:1.5rem">📍</div><div style="font-size:.85rem;color:#9ca3af">المنطقة</div><div style="font-weight:bold" class="text-blue">الشرقية</div></div>'
-    + '<div style="text-align:center"><div style="font-size:1.5rem">⏰</div><div style="font-size:.85rem;color:#9ca3af">التوقيت</div><div style="font-weight:bold" class="text-blue">يومي 9 صباحاً</div></div>'
-    + '<div style="text-align:center"><div style="font-size:1.5rem">🏪</div><div style="font-size:.85rem;color:#9ca3af">الأنشطة</div><div style="font-weight:bold" class="text-blue">10 أنواع</div></div>'
-    + '<div style="text-align:center"><div style="font-size:1.5rem">🗺️</div><div style="font-size:.85rem;color:#9ca3af">المصدر</div><div style="font-weight:bold" class="text-blue">Google Maps</div></div>'
-    + '</div></div>'
-    + '<div class="card">'
-    + '<h2 style="font-size:1.25rem;font-weight:bold;margin-bottom:1rem;">📋 الأنشطة التجارية المغطاة</h2>'
-    + '<div class="grid-4">'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{font-family:"Segoe UI",Tahoma,sans-serif;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);min-height:100vh;color:#fff;padding:1.5rem}'
+    + '.wrap{max-width:820px;margin:0 auto}'
+    + '.header{text-align:center;padding:2rem 0 1.5rem}'
+    + '.header .icon{font-size:4rem;margin-bottom:.75rem}'
+    + '.header h1{font-size:2rem;font-weight:700;margin-bottom:.4rem}'
+    + '.header p{color:#93c5fd;font-size:1.05rem}'
+    + '.card{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);border-radius:1rem;padding:1.5rem;margin-bottom:1.2rem}'
+    + '.card h2{font-size:1.1rem;font-weight:600;margin-bottom:1rem}'
+    + '.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:.75rem}'
+    + '@media(min-width:500px){.stats{grid-template-columns:repeat(4,1fr)}}'
+    + '.stat{text-align:center;padding:.5rem}'
+    + '.stat .icon2{font-size:1.6rem;margin-bottom:.3rem}'
+    + '.stat .label{font-size:.75rem;color:#9ca3af;margin-bottom:.2rem}'
+    + '.stat .val{font-weight:700;color:#93c5fd}'
+    + '.cities{display:flex;flex-wrap:wrap;gap:.5rem}'
+    + '.types{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}'
+    + '@media(min-width:600px){.types{grid-template-columns:repeat(5,1fr)}}'
+    + '.actions{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}'
+    + 'button{padding:.9rem;border:none;border-radius:.75rem;font-size:1rem;font-weight:700;cursor:pointer;width:100%;transition:.2s}'
+    + '.btn-blue{background:#2563eb;color:#fff}'
+    + '.btn-blue:hover{background:#1d4ed8}'
+    + '.btn-green{background:#16a34a;color:#fff}'
+    + '.btn-green:hover{background:#15803d}'
+    + 'button:disabled{opacity:.5;cursor:not-allowed}'
+    + '.result{margin-top:1rem;padding:1rem;border-radius:.75rem;background:rgba(0,0,0,.3);display:none}'
+    + '.pulse{animation:pulse 2s infinite}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}'
+    + '.schedule{display:flex;flex-direction:column;gap:.5rem}'
+    + '.sched-item{display:flex;align-items:center;gap:.75rem;padding:.6rem .9rem;background:rgba(255,255,255,.05);border-radius:.5rem}'
+    + '.sched-time{font-weight:700;color:#fbbf24;min-width:80px}'
+    + '.footer{text-align:center;color:#6b7280;font-size:.8rem;margin-top:1.5rem;padding-top:1rem}'
+    + '</style></head><body><div class="wrap">'
 
-  const part2 = '</div></div>'
-    + '<div class="card">'
-    + '<h2 style="font-size:1.25rem;font-weight:bold;margin-bottom:1rem;">🚀 إجراءات</h2>'
-    + '<button class="btn btn-blue" onclick="triggerNow()">'
-    + '<i class="fas fa-paper-plane" style="margin-left:.5rem"></i> إرسال الآن (اختبار)'
-    + '</button>'
-    + '<button class="btn btn-green" onclick="checkStatus()">'
-    + '<i class="fas fa-check-circle" style="margin-left:.5rem"></i> فحص الإعدادات'
-    + '</button></div>'
-    + '<div id="result" class="card" style="display:none;">'
-    + '<h2 style="font-size:1.25rem;font-weight:bold;margin-bottom:.75rem;">📊 النتيجة</h2>'
-    + '<div id="result-content"></div></div>'
-    + '<div class="card">'
-    + '<h2 style="font-size:1.25rem;font-weight:bold;margin-bottom:1rem;">⚙️ دليل الإعداد</h2>'
-    + '<div style="display:flex;flex-direction:column;gap:.75rem;color:#d1d5db;">'
-    + '<div><span class="text-blue" style="font-weight:bold">1. </span>أضف <code class="text-yellow">TELEGRAM_BOT_TOKEN</code> كـ Secret في Cloudflare Pages</div>'
-    + '<div><span class="text-blue" style="font-weight:bold">2. </span>أضف <code class="text-yellow">TELEGRAM_CHAT_ID</code> = <code class="text-green-b">-1002818140662</code></div>'
-    + '<div><span class="text-blue" style="font-weight:bold">3. </span>أضف <code class="text-yellow">GOOGLE_PLACES_API_KEY</code> من Google Cloud Console</div>'
-    + '<div><span class="text-blue" style="font-weight:bold">4. </span>فعّل Places API في Google Cloud Console</div>'
-    + '<div><span class="text-blue" style="font-weight:bold">5. </span>Cron Job يعمل تلقائياً كل يوم الساعة 6 صباحاً UTC (9 صباحاً بتوقيت السعودية)</div>'
-    + '</div></div></div>'
+    // Header
+    + '<div class="header">'
+    + '<div class="icon">🤖</div>'
+    + '<h1>خدمات المنطقة الشرقية</h1>'
+    + '<p>بوت تليجرام يرسل يومياً أفضل الأنشطة التجارية</p>'
+    + '</div>'
+
+    // Stats
+    + '<div class="card"><h2>📊 إحصائيات البوت</h2><div class="stats">'
+    + '<div class="stat"><div class="icon2">🏙️</div><div class="label">المدن</div><div class="val">5 مدن</div></div>'
+    + '<div class="stat"><div class="icon2">🏪</div><div class="label">الأنشطة</div><div class="val">15 نوع</div></div>'
+    + '<div class="stat"><div class="icon2">📩</div><div class="label">الإرسال</div><div class="val">3 مرات</div></div>'
+    + '<div class="stat"><div class="icon2"><span class="pulse" style="display:inline-block;width:10px;height:10px;background:#4ade80;border-radius:50%;"></span></div><div class="label">الحالة</div><div class="val" style="color:#4ade80">نشط</div></div>'
+    + '</div></div>'
+
+    // Cities
+    + '<div class="card"><h2>🏙️ المدن المغطاة</h2><div class="cities">'
+    + citiesHtml
+    + '</div></div>'
+
+    // Schedule
+    + '<div class="card"><h2>⏰ جدول الإرسال اليومي</h2><div class="schedule">'
+    + '<div class="sched-item"><span class="sched-time">9:00 صباحاً</span><span>أول رسالة - نشاط تجاري عشوائي</span></div>'
+    + '<div class="sched-item"><span class="sched-time">1:00 ظهراً</span><span>ثاني رسالة - نشاط تجاري عشوائي</span></div>'
+    + '<div class="sched-item"><span class="sched-time">6:00 مساءً</span><span>ثالث رسالة - نشاط تجاري عشوائي</span></div>'
+    + '</div></div>'
+
+    // Types
+    + '<div class="card"><h2>🗂️ أنواع الأنشطة</h2><div class="types">'
+    + typesHtml
+    + '</div></div>'
+
+    // Actions
+    + '<div class="card"><h2>🚀 إجراءات</h2><div class="actions">'
+    + '<button class="btn-blue" onclick="sendNow()"><i class="fas fa-paper-plane" style="margin-left:.4rem"></i>إرسال الآن</button>'
+    + '<button class="btn-green" onclick="checkStatus()"><i class="fas fa-check-circle" style="margin-left:.4rem"></i>فحص الإعدادات</button>'
+    + '</div><div class="result" id="result"></div></div>'
+
+    // Footer
+    + '<div class="footer">📢 خدمات المنطقة الشرقية | مدعوم بـ Overpass API & OpenStreetMap</div>'
+
+    + '</div>'
     + '<script>'
-    + 'async function triggerNow(){'
-    + 'const btn=event.target.closest("button");btn.disabled=true;'
-    + 'btn.innerHTML="<i class=\\"fas fa-spinner fa-spin\\" style=\\"margin-left:.5rem\\"></i> جاري الإرسال...";'
-    + 'try{const res=await fetch("/api/send-now",{method:"POST"});const data=await res.json();showResult(data);}'
-    + 'catch(e){showResult({success:false,message:"خطأ: "+e.message});}'
-    + 'btn.disabled=false;btn.innerHTML="<i class=\\"fas fa-paper-plane\\" style=\\"margin-left:.5rem\\"></i> إرسال الآن (اختبار)";'
+    + 'async function sendNow(){'
+    + 'const btn=document.querySelectorAll("button")[0];'
+    + 'btn.disabled=true;btn.innerHTML="<i class=\'fas fa-spinner fa-spin\' style=\'margin-left:.4rem\'></i>جاري الإرسال...";'
+    + 'try{const r=await fetch("/api/send",{method:"POST"});const d=await r.json();showResult(d);}catch(e){showResult({success:false,message:e.message});}'
+    + 'btn.disabled=false;btn.innerHTML="<i class=\'fas fa-paper-plane\' style=\'margin-left:.4rem\'></i>إرسال الآن";'
     + '}'
     + 'async function checkStatus(){'
-    + 'const btn=event.target.closest("button");btn.disabled=true;'
-    + 'btn.innerHTML="<i class=\\"fas fa-spinner fa-spin\\" style=\\"margin-left:.5rem\\"></i> جاري الفحص...";'
-    + 'try{const res=await fetch("/api/status");const data=await res.json();showResult(data);}'
-    + 'catch(e){showResult({success:false,message:"خطأ: "+e.message});}'
-    + 'btn.disabled=false;btn.innerHTML="<i class=\\"fas fa-check-circle\\" style=\\"margin-left:.5rem\\"></i> فحص الإعدادات";'
+    + 'const btn=document.querySelectorAll("button")[1];'
+    + 'btn.disabled=true;btn.innerHTML="<i class=\'fas fa-spinner fa-spin\' style=\'margin-left:.4rem\'></i>جاري الفحص...";'
+    + 'try{const r=await fetch("/api/status");const d=await r.json();showResult(d);}catch(e){showResult({success:false,message:e.message});}'
+    + 'btn.disabled=false;btn.innerHTML="<i class=\'fas fa-check-circle\' style=\'margin-left:.4rem\'></i>فحص الإعدادات";'
     + '}'
-    + 'function showResult(data){'
-    + 'const el=document.getElementById("result");const content=document.getElementById("result-content");'
+    + 'function showResult(d){'
+    + 'const el=document.getElementById("result");'
     + 'el.style.display="block";'
-    + 'const icon=data.success?"✅":"❌";const color=data.success?"#4ade80":"#f87171";'
-    + 'let h="<div style=\\"font-size:1.1rem;font-weight:bold;color:"+color+"\\">"+icon+" "+data.message+"</div>";'
-    + 'if(data.details){h+="<pre>"+JSON.stringify(data.details,null,2)+"</pre>";}'
-    + 'content.innerHTML=h;el.scrollIntoView({behavior:"smooth"});'
-    + '}'
+    + 'const c=d.success?"#4ade80":"#f87171";'
+    + 'const i=d.success?"✅":"❌";'
+    + 'el.innerHTML="<div style=\'color:"+c+";font-weight:700;font-size:1.05rem\'>"+i+" "+d.message+"</div>"'
+    + '+(d.details?"<pre style=\'margin-top:.75rem;font-size:.75rem;overflow:auto\'>"+JSON.stringify(d.details,null,2)+"</pre>":"");'
+    + 'el.scrollIntoView({behavior:"smooth"});}'
     + '<\/script></body></html>'
 
-  return part1 + catItems + part2
-}
+  return c.html(html)
+})
 
-// API: إرسال فوري للاختبار
-app.post('/api/send-now', async (c) => {
-  const result = await runDailyBot(c.env)
+// API: إرسال فوري
+app.post('/api/send', async (c) => {
+  const result = await runBot(c.env)
   return c.json(result)
 })
 
 // API: فحص الإعدادات
 app.get('/api/status', async (c) => {
-  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_PLACES_API_KEY } = c.env
+  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = c.env
 
-  const checks: Record<string, boolean> = {
+  const checks = {
     TELEGRAM_BOT_TOKEN: !!TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID: !!TELEGRAM_CHAT_ID,
-    GOOGLE_PLACES_API_KEY: !!GOOGLE_PLACES_API_KEY,
   }
   const allOk = Object.values(checks).every(Boolean)
 
   let botInfo = null
   if (TELEGRAM_BOT_TOKEN) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe`)
-      const d: any = await res.json()
+      const r = await fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/getMe')
+      const d: any = await r.json()
       botInfo = d.result
     } catch (_) {}
   }
 
+  // اختبار Overpass
+  let overpassOk = false
+  try {
+    const r = await fetch('https://overpass-api.de/api/status')
+    overpassOk = r.ok
+  } catch (_) {}
+
   return c.json({
-    success: allOk,
-    message: allOk ? 'جميع الإعدادات صحيحة ✅' : 'بعض الإعدادات ناقصة ❌',
+    success: allOk && overpassOk,
+    message: allOk && overpassOk ? 'كل الإعدادات صحيحة ✅' : 'يوجد مشكلة في الإعدادات ❌',
     details: {
       environment_variables: checks,
       bot_info: botInfo,
+      overpass_api: overpassOk ? 'يعمل ✅' : 'لا يعمل ❌',
+      cities_covered: CITIES.map(c => c.name),
       chat_id: TELEGRAM_CHAT_ID || 'غير محدد',
-      location: 'المنطقة الشرقية - الدمام',
     },
   })
 })
-
-// ---- Cloudflare Scheduled (Cron) + HTTP export ----
-// wrangler pages dev يتوقع Hono app مباشرة كـ default export
-// لإضافة scheduled handler، نستخدم نهج مختلف:
-// نجعل app يتعامل مع /cdn-cgi/handler/scheduled يدوياً أيضاً
-
-app.get('/cdn-cgi/handler/scheduled', async (c) => {
-  const result = await runDailyBot(c.env)
-  return c.json({ triggered: true, ...result })
-})
-
-export default app

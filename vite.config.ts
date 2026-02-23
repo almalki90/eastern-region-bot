@@ -1,9 +1,6 @@
 import { defineConfig } from 'vite'
-import pages from '@hono/vite-cloudflare-pages'
+import build from '@hono/vite-build/cloudflare-pages'
 
 export default defineConfig({
-  plugins: [pages()],
-  build: {
-    outDir: 'dist'
-  }
+  plugins: [build()],
 })
